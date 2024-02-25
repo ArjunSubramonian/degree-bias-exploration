@@ -8,9 +8,19 @@ import torch.nn.functional as F
 from torch_geometric.utils import degree, add_remaining_self_loops, k_hop_subgraph, to_networkx, subgraph
 from torch_scatter import scatter
 import torch_sparse
+from torch_sparse import coalesce
 import networkx as nx
 
+def get_id(n, edge_index):
+    index = torch.tensor([list(range(n)), list(range(n))], device=edge_index.device).long()
+    value = torch.ones_like(index[0]).float()
+    return coalesce(index, value, m=n, n=n)
+
 def power(edge_index, edge_weight, n, k):
+    if k == 0:
+        pow_edge_index, pow_edge_weight = get_id(n, edge_index)
+        return pow_edge_index, pow_edge_weight
+        
     pow_edge_index = edge_index.clone()
     pow_edge_weight = edge_weight.clone()
     for _ in range(k - 1):
@@ -22,17 +32,19 @@ def power_x(edge_index, edge_weight, x, n, k):
         x = torch_sparse.spmm(edge_index, edge_weight, n, n, x)
     return x
 
-def gcn_norm(edge_index, edge_weight, n):
+def gcn_norm(edge_index, edge_weight, n, return_inv_sqrt=False):
     deg = degree(edge_index[0], num_nodes=n)
     deg_inv_sqrt = deg.pow(-0.5)
     deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0)
+    if return_inv_sqrt:
+        return deg_inv_sqrt[edge_index[0]] * edge_weight * deg_inv_sqrt[edge_index[1]], deg_inv_sqrt
     return deg_inv_sqrt[edge_index[0]] * edge_weight * deg_inv_sqrt[edge_index[1]]
 
 def sage_norm(edge_index, edge_weight, n):
     deg = degree(edge_index[0], num_nodes=n)
-    deg_inv_sqrt = deg.pow(-1.0)
-    deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0)
-    return edge_weight * deg_inv_sqrt[edge_index[1]]
+    deg_inv = deg.pow(-1.0)
+    deg_inv.masked_fill_(deg_inv == float('inf'), 0)
+    return edge_weight * deg_inv[edge_index[1]]
 
 
 # +
@@ -150,17 +162,31 @@ def get_compatibility_matrix(y, edge_index, edge_weight=None):
     return torch.nn.functional.normalize(H, p=1)
 
 
+# +
 def scatter(x, high_degs_mask, low_degs_mask, data):
     low_deg_spread = 0
     high_deg_spread = 0
     for c in range(data.y.max() + 1):
-        mask = low_degs_mask & (data.y == c)
+        mask = low_degs_mask & (data.y[data.test_mask] == c)
         if mask.sum() != 0:
             centered_x = x[mask] - x[mask].mean(dim=0).reshape(1, -1)
             low_deg_spread += centered_x.t() @ centered_x / low_degs_mask.sum()
         
-        mask = high_degs_mask & (data.y == c)
+        mask = high_degs_mask & (data.y[data.test_mask] == c)
         if mask.sum() != 0:
             centered_x = x[mask] - x[mask].mean(dim=0).reshape(1, -1)
             high_deg_spread += centered_x.t() @ centered_x / high_degs_mask.sum()
-    return torch.det(low_deg_spread), torch.det(high_deg_spread)
+    return torch.trace(low_deg_spread), torch.trace(high_deg_spread)
+
+#     low_deg_spread = 0
+#     high_deg_spread = 0
+    
+#     mask = low_degs_mask
+#     centered_x = x[mask] - x[mask].mean(dim=0).reshape(1, -1)
+#     low_deg_spread += centered_x.t() @ centered_x / low_degs_mask.sum()
+        
+#     mask = high_degs_mask
+#     centered_x = x[mask] - x[mask].mean(dim=0).reshape(1, -1)
+#     high_deg_spread += centered_x.t() @ centered_x / high_degs_mask.sum()
+    
+#     return torch.trace(low_deg_spread), torch.trace(high_deg_spread)

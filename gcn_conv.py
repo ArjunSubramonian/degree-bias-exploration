@@ -59,13 +59,14 @@ def scatter(src: Tensor, index: Tensor, dim: int = 0,
     return torch_scatter.scatter(src, index, dim, dim_size=dim_size,
                                  reduce=reduce)
 
+# +
 def gcn_norm(edge_index, edge_weight=None, num_nodes=None, flow="source_to_target", conv="sym", dtype=None):
 
     assert flow in ['source_to_target', 'target_to_source']
     num_nodes = maybe_num_nodes(edge_index, num_nodes)
 
-    edge_index, edge_weight = add_remaining_self_loops(
-            edge_index, edge_weight, 1.0, num_nodes)
+#     edge_index, edge_weight = add_remaining_self_loops(
+#             edge_index, edge_weight, 1.0, num_nodes)
 
     if edge_weight is None:
         edge_weight = torch.ones((edge_index.size(1), ), dtype=dtype,
@@ -87,9 +88,11 @@ def gcn_norm(edge_index, edge_weight=None, num_nodes=None, flow="source_to_targe
     return edge_index, edge_weight
 
 
+# -
+
 class GCNConv(MessagePassing):
 
-    def __init__(self, in_channels: int, out_channels: int, conv: str, **kwargs):
+    def __init__(self, feat_channels: int, in_channels: int, out_channels: int, conv: str, **kwargs):
 
         kwargs.setdefault('aggr', 'add')
         super().__init__(**kwargs)
@@ -98,7 +101,11 @@ class GCNConv(MessagePassing):
         self.out_channels = out_channels
         self.conv = conv
 
+        self.lin_self = Linear(in_channels, out_channels, bias=True,
+                          weight_initializer='glorot')
         self.lin = Linear(in_channels, out_channels, bias=True,
+                          weight_initializer='glorot')
+        self.lin_res = Linear(feat_channels, out_channels, bias=True,
                           weight_initializer='glorot')
 
         self.reset_parameters()
@@ -107,13 +114,14 @@ class GCNConv(MessagePassing):
         self.lin.reset_parameters()
 
 
-    def forward(self, x: Tensor, edge_index: Adj,
+    def forward(self, x: Tensor, x0: Tensor, edge_index: Adj,
                 edge_weight: OptTensor = None) -> Tensor:
         
         edge_index, edge_weight = gcn_norm(
             edge_index, edge_weight, x.size(self.node_dim), self.flow, self.conv, x.dtype)
          
-        x = self.lin(x)
+        x_self = self.lin_self(x)
+        x = x_self + self.lin(x) + self.lin_res(x0)
 
         # propagate_type: (x: Tensor, edge_weight: OptTensor)
         out = self.propagate(edge_index, x=x, edge_weight=edge_weight,
