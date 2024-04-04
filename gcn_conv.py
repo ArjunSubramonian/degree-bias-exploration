@@ -111,8 +111,10 @@ class GCNConv(MessagePassing):
         self.reset_parameters()
 
     def reset_parameters(self):
+        super().reset_parameters()
+        self.lin_self.reset_parameters()
         self.lin.reset_parameters()
-
+        self.lin_res.reset_parameters()
 
     def forward(self, x: Tensor, x0: Tensor, edge_index: Adj,
                 edge_weight: OptTensor = None) -> Tensor:
@@ -121,11 +123,12 @@ class GCNConv(MessagePassing):
             edge_index, edge_weight, x.size(self.node_dim), self.flow, self.conv, x.dtype)
          
         x_self = self.lin_self(x)
-        x = x_self + self.lin(x) + self.lin_res(x0)
-
+        x = self.lin(x)
+    
         # propagate_type: (x: Tensor, edge_weight: OptTensor)
         out = self.propagate(edge_index, x=x, edge_weight=edge_weight,
                              size=None)
+        out = x_self + out + self.lin_res(x0)
 
         return out
 

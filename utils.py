@@ -162,7 +162,6 @@ def get_compatibility_matrix(y, edge_index, edge_weight=None):
     return torch.nn.functional.normalize(H, p=1)
 
 
-# +
 def scatter(x, high_degs_mask, low_degs_mask, data):
     low_deg_spread = 0
     high_deg_spread = 0
@@ -177,16 +176,3 @@ def scatter(x, high_degs_mask, low_degs_mask, data):
             centered_x = x[mask] - x[mask].mean(dim=0).reshape(1, -1)
             high_deg_spread += centered_x.t() @ centered_x / high_degs_mask.sum()
     return torch.trace(low_deg_spread), torch.trace(high_deg_spread)
-
-#     low_deg_spread = 0
-#     high_deg_spread = 0
-    
-#     mask = low_degs_mask
-#     centered_x = x[mask] - x[mask].mean(dim=0).reshape(1, -1)
-#     low_deg_spread += centered_x.t() @ centered_x / low_degs_mask.sum()
-        
-#     mask = high_degs_mask
-#     centered_x = x[mask] - x[mask].mean(dim=0).reshape(1, -1)
-#     high_deg_spread += centered_x.t() @ centered_x / high_degs_mask.sum()
-    
-#     return torch.trace(low_deg_spread), torch.trace(high_deg_spread)
